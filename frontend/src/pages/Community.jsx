@@ -552,8 +552,13 @@ export default function Community() {
               </section>
             ) : (
               <>
+            {/* FIX: Tab bar now has a solid dark green background so white text is visible,
+                and active tab uses a light underline + bright white; inactive uses semi-transparent white */}
             <section className="rounded-2xl border border-[#dfeadf] bg-[#f4faf3] shadow-sm transition-colors hover:bg-[#e9f5ea]">
-              <div className="flex items-center gap-5 border-b border-[#edf4eb] px-4 py-3">
+              <div
+                className="flex items-center gap-5 border-b border-[#edf4eb] px-4 py-3 rounded-t-2xl"
+                style={{ background: 'linear-gradient(to right, #2a6648, #3a805b)' }}
+              >
                 <TabButton label="Posts" active={activeTab === 'posts'} onClick={() => setActiveTab('posts')} />
                 <TabButton label="Recommendations" active={activeTab === 'recommendations'} onClick={() => setActiveTab('recommendations')} />
               </div>
@@ -831,15 +836,25 @@ function MenuItem({ icon, label, active = false, onClick }) {
   )
 }
 
+// FIX: TabButton now uses dark green text for proper contrast on the light card background.
+// Active tab gets a dark underline + dark green text; inactive gets muted green.
 function TabButton({ label, active, onClick }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={[
-        'border-b-2 pb-1 text-[15px] font-semibold transition-colors',
-        active ? 'border-[#d2ecd9] text-white' : 'border-transparent text-white hover:text-[#eef8f1]'
-      ].join(' ')}
+      style={{
+        color: active ? '#ffffff' : 'rgba(255,255,255,0.7)',
+        borderBottom: active ? '2px solid #ffffff' : '2px solid transparent',
+        paddingBottom: '4px',
+        fontSize: '15px',
+        fontWeight: 600,
+        background: 'none',
+        border: 'none',
+        borderBottom: active ? '2px solid #ffffff' : '2px solid transparent',
+        cursor: 'pointer',
+        transition: 'color 0.15s',
+      }}
     >
       {label}
     </button>
