@@ -47,14 +47,7 @@ export default function Login({ initialMode = 'login' }) {
     const el = videoRef.current
     if (!el) return
     el.load()
-    const tryPlay = async () => {
-      try {
-        await el.play()
-      } catch (_) {
-        // Autoplay may be delayed on some browsers; muted + controls off remains preferred.
-      }
-    }
-    tryPlay()
+    el.play().catch(() => {})
   }, [mode, videoSrc])
 
   const handleAuthSuccess = (token, user) => {
@@ -63,18 +56,20 @@ export default function Login({ initialMode = 'login' }) {
     localStorage.setItem('user', JSON.stringify(user))
   }
 
+  // Finalize Google OAuth session
   const finalizeGoogleSession = async (firebaseUser) => {
     const idToken = await firebaseUser.getIdToken(true)
-    const res = await api.post('/auth/google', { idToken })
+    const res = await api.post(`${API_BASE}/auth/google`, { idToken })
     const token = res.data?.data?.token
     const user = res.data?.data?.user
-    const role = (user?.role || user?.user?.role || '').toString().toLowerCase()
+    const role = (user?.role || '').toString().toLowerCase()
     if (!token) throw new Error('No token returned from server')
 
     handleAuthSuccess(token, user)
     navigate(role === 'admin' ? '/admin' : '/dashboard')
   }
 
+  // Handle Google redirect after popup blocked
   useEffect(() => {
     const completeGoogleRedirect = async () => {
       const isGoogleAuthPending = localStorage.getItem(GOOGLE_AUTH_PENDING_KEY) === '1'
@@ -94,42 +89,36 @@ export default function Login({ initialMode = 'login' }) {
         setLoading(false)
       }
     }
-
     completeGoogleRedirect()
   }, [navigate])
 
+  // ----------------- LOGIN -----------------
   const handleLoginSubmit = async (e) => {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
-      // Local login should not reuse previous Google redirect/session intent.
       localStorage.removeItem(GOOGLE_AUTH_PENDING_KEY)
-      if (firebaseAuth.currentUser) {
-        await signOut(firebaseAuth).catch(() => {})
-      }
+      if (firebaseAuth.currentUser) await signOut(firebaseAuth).catch(() => {})
 
-      const res = await api.post('/auth/login', loginForm)
+      const res = await api.post(`${API_BASE}/auth/login`, loginForm)
       const token = res.data?.data?.token
       const user = res.data?.data?.user
-      const role = (user?.role || user?.user?.role || '').toString().toLowerCase()
+      const role = (user?.role || '').toString().toLowerCase()
       if (!token) throw new Error('No token returned from server')
 
       handleAuthSuccess(token, user)
       navigate(role === 'admin' ? '/admin' : '/dashboard')
     } catch (err) {
-      if (!err.response) {
-        setError(`Network Error: Cannot reach server at ${API_BASE}`)
-      } else if (err.response?.status === 401) {
-        setError('Invalid email or password')
-      } else {
-        setError(err.response?.data?.error || err.message || 'Login failed')
-      }
+      if (!err.response) setError(`Network Error: Cannot reach server at ${API_BASE}`)
+      else if (err.response?.status === 401) setError('Invalid email or password')
+      else setError(err.response?.data?.error || err.message || 'Login failed')
     } finally {
       setLoading(false)
     }
   }
 
+  // ----------------- GOOGLE SIGN-IN -----------------
   const handleGoogleSignIn = async () => {
     setError('')
     setLoading(true)
@@ -153,22 +142,18 @@ export default function Login({ initialMode = 'login' }) {
       }
       setLoading(false)
     } finally {
-      if (localStorage.getItem(GOOGLE_AUTH_PENDING_KEY) !== '1') {
-        setLoading(false)
-      }
+      if (localStorage.getItem(GOOGLE_AUTH_PENDING_KEY) !== '1') setLoading(false)
     }
   }
 
+  // ----------------- REGISTER -----------------
   const handleRegisterSubmit = async (e) => {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
-      // Local register should not reuse previous Google redirect/session intent.
       localStorage.removeItem(GOOGLE_AUTH_PENDING_KEY)
-      if (firebaseAuth.currentUser) {
-        await signOut(firebaseAuth).catch(() => {})
-      }
+      if (firebaseAuth.currentUser) await signOut(firebaseAuth).catch(() => {})
 
       if (!registerForm.profilePicture) throw new Error('Profile picture is required')
 
@@ -178,7 +163,7 @@ export default function Login({ initialMode = 'login' }) {
       form.append('password', registerForm.password)
       form.append('profile_picture', registerForm.profilePicture)
 
-      const res = await api.post('/auth/register', form, {
+      const res = await api.post(`${API_BASE}/auth/register`, form, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       const token = res.data?.data?.token
@@ -194,6 +179,7 @@ export default function Login({ initialMode = 'login' }) {
     }
   }
 
+  // ----------------- JSX -----------------
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#08170f] via-[#0f2a1c] to-[#08170f] p-0">
       <div className="relative h-screen w-full overflow-hidden border-0 rounded-none shadow-none">
@@ -229,12 +215,9 @@ export default function Login({ initialMode = 'login' }) {
                 poster="/images/aloe2.jpg"
                 className="absolute inset-0 h-full w-full object-cover"
                 src={videoSrc}
-                onError={() => {
-                  setVideoFallbackIndex((prev) => {
-                    if (prev + 1 < videoCandidates.length) return prev + 1
-                    return prev
-                  })
-                }}
+                onError={() =>
+                  setVideoFallbackIndex((prev) => (prev + 1 < videoCandidates.length ? prev + 1 : prev))
+                }
               />
               <div className="absolute inset-0 bg-gradient-to-br from-black/45 via-black/20 to-black/45" />
               <div className="relative z-10 flex h-full flex-col justify-between p-6 md:p-8">
