@@ -7,38 +7,42 @@ const connectToDatabase = require('./config/database');
 const { validateEnv } = require('./config/validateEnv');
 const errorHandler = require('./middlewares/errorHandler');
 
-// Load environment variables
+// ----------------- LOAD ENV -----------------
 dotenv.config();
 validateEnv();
 
-// Connect to database
+// ----------------- DATABASE -----------------
 connectToDatabase();
 
-// Initialize Express app
+// ----------------- EXPRESS APP -----------------
 const app = express();
 
 // ----------------- CORS SETUP -----------------
 
-// Default frontend URLs
+// Default local development URL
 const defaultAllowedOrigins = ['http://localhost:3000'];
 
-// Add Vercel frontend URL from environment variable (CORS_ORIGIN)
+// Vercel frontend URL(s) from environment variable
+// You can set CORS_ORIGIN=https://my-frontend.vercel.app or multiple comma-separated URLs
 const allowedOrigins = process.env.CORS_ORIGIN
   ? [...defaultAllowedOrigins, ...process.env.CORS_ORIGIN.split(',').map(o => o.trim()).filter(Boolean)]
   : defaultAllowedOrigins;
 
-// Configure CORS middleware
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (like Postman or server-to-server)
+    // Allow requests with no origin (server-to-server, Postman)
     if (!origin) return callback(null, true);
 
-    if (allowedOrigins.includes(origin)) {
+    // Allow if origin matches whitelist OR is a Vercel preview domain
+    if (
+      allowedOrigins.includes(origin) ||
+      origin.endsWith('.vercel.app')
+    ) {
       return callback(null, true);
-    } else {
-      console.error('Blocked CORS request from origin:', origin);
-      return callback(new Error('Not allowed by CORS'));
     }
+
+    console.error('Blocked CORS request from origin:', origin);
+    return callback(new Error('Not allowed by CORS'));
   },
   credentials: true, // Allow cookies
 };
