@@ -37,6 +37,9 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
+// Trust proxy (important for Render and other reverse proxies)
+app.set('trust proxy', 1);
+
 // ----------------- MIDDLEWARE -----------------
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
