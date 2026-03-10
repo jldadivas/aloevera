@@ -1,3 +1,12 @@
+---
+title: FastAPI ML Microservice
+emoji: ⚡
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+---
+
 # Aloe Vera ML Service
 
 FastAPI-based microservice for:
