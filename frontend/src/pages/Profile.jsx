@@ -102,9 +102,16 @@ export default function Profile() {
   return (
     <div className="mx-auto max-w-4xl px-6 py-10">
       <div className="overflow-hidden rounded-2xl border border-emerald-200/80 bg-[#f6fbf7] shadow-xl shadow-emerald-900/10">
-        <div className="border-b border-emerald-200/80 bg-gradient-to-r from-[#1f7a46] to-[#2a8a56] px-8 py-7">
-          <h1 className="text-2xl font-bold text-white">Profile Settings</h1>
-          <p className="mt-1 text-sm font-medium text-emerald-100">Update your account details and profile photo.</p>
+        {/* FIX: Use inline style for background to guarantee the gradient renders,
+            and keep text explicitly white with a text-shadow for legibility */}
+        <div
+          className="border-b border-emerald-200/80 px-8 py-7"
+          style={{ background: 'linear-gradient(to right, #1f7a46, #2a8a56)' }}
+        >
+          <h1 className="text-2xl font-bold" style={{ color: '#ffffff' }}>Profile Settings</h1>
+          <p className="mt-1 text-sm font-medium" style={{ color: '#d1fae5' }}>
+            Update your account details and profile photo.
+          </p>
         </div>
 
         <div className="grid gap-8 px-8 py-8 md:grid-cols-[220px_1fr]">
