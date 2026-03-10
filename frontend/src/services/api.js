@@ -1,11 +1,26 @@
 import axios from 'axios'
 
-const runtimeDefaultBase =
-  typeof window !== 'undefined'
-    ? `${window.location.origin}/api/v1`
-    : 'http://localhost:5000/api/v1'
+// Determine API base URL
+const getApiBase = () => {
+  // Priority 1: Explicit env variable (set this in deployment)
+  if (import.meta.env.VITE_API_BASE) {
+    return import.meta.env.VITE_API_BASE
+  }
+  
+  // Priority 2: For local development
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    return 'http://localhost:5000/api/v1'
+  }
+  
+  // Priority 3: Assume backend is on same domain (with /api/v1 prefix)
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/api/v1`
+  }
+  
+  return 'http://localhost:5000/api/v1'
+}
 
-export const API_BASE = import.meta.env.VITE_API_BASE || runtimeDefaultBase
+export const API_BASE = getApiBase()
 
 const api = axios.create({ baseURL: API_BASE })
 
