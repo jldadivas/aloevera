@@ -18,33 +18,21 @@ connectToDatabase();
 const app = express();
 
 // ----------------- CORS SETUP -----------------
-
-// Default local development URL
 const defaultAllowedOrigins = ['http://localhost:3000'];
-
-// Vercel frontend URL(s) from environment variable
-// You can set CORS_ORIGIN=https://my-frontend.vercel.app or multiple comma-separated URLs
 const allowedOrigins = process.env.CORS_ORIGIN
   ? [...defaultAllowedOrigins, ...process.env.CORS_ORIGIN.split(',').map(o => o.trim()).filter(Boolean)]
   : defaultAllowedOrigins;
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (server-to-server, Postman)
-    if (!origin) return callback(null, true);
-
-    // Allow if origin matches whitelist OR is a Vercel preview domain
-    if (
-      allowedOrigins.includes(origin) ||
-      origin.endsWith('.vercel.app')
-    ) {
+    if (!origin) return callback(null, true); // Postman or server-to-server
+    if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
       return callback(null, true);
     }
-
     console.error('Blocked CORS request from origin:', origin);
     return callback(new Error('Not allowed by CORS'));
   },
-  credentials: true, // Allow cookies
+  credentials: true,
 };
 
 app.use(cors(corsOptions));
@@ -64,7 +52,7 @@ app.get('/health', (req, res) => {
 });
 
 // ----------------- ROUTES -----------------
-app.use('/api/v1/auth', require('./routes/auth'));
+app.use('/api/v1/auth', require('./routes/auth')); // Auth routes
 app.use('/api/v1/plants', require('./routes/plants'));
 app.use('/api/v1/scans', require('./routes/scans'));
 app.use('/api/v1/diseases', require('./routes/diseases'));
