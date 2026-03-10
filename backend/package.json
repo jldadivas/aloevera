@@ -3,11 +3,12 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "node -e \"const fs=require('fs');const path=require('path');const {execFileSync}=require('child_process');const skip=new Set(['node_modules','.git']);function walk(dir){for(const entry of fs.readdirSync(dir,{withFileTypes:true})){if(skip.has(entry.name))continue;const full=path.join(dir,entry.name);if(entry.isDirectory())walk(full);else if(full.endsWith('.js'))execFileSync(process.execPath,['--check',full],{stdio:'inherit'});}}walk('.');console.log('Backend syntax test passed');\"",
-    "smoke": "node scripts/smoke.js",
-    "start": "nodemon server.js",
-    "seed:admin": "node seeders/adminSeeder.js"
-  },
+  "test": "node -e \"const fs=require('fs');const path=require('path');const {execFileSync}=require('child_process');const skip=new Set(['node_modules','.git']);function walk(dir){for(const entry of fs.readdirSync(dir,{withFileTypes:true})){if(skip.has(entry.name))continue;const full=path.join(dir,entry.name);if(entry.isDirectory())walk(full);else if(full.endsWith('.js'))execFileSync(process.execPath,['--check',full],{stdio:'inherit'});}}walk('.');console.log('Backend syntax test passed');\"",
+  "smoke": "node scripts/smoke.js",
+  "start": "node server.js",
+  "dev": "nodemon server.js",
+  "seed:admin": "node seeders/adminSeeder.js"
+},
   "keywords": [],
   "author": "",
   "license": "ISC",
