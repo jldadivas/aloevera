@@ -107,7 +107,7 @@ def _is_likely_aloe_image(
             return False
 
     # Aloe-like images should have enough green coverage.
-    if green_ratio < 0.08:
+    if green_ratio < 0.05:
         return False
 
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(green_mask, connectivity=8)
@@ -136,17 +136,17 @@ def _is_likely_aloe_image(
     if feature_probe.get("error"):
         if not allow_closeup_fallback:
             return (
-                green_ratio >= 0.18 and
-                mean_saturation >= 45.0 and
-                red_ratio <= 0.08 and
-                significant_components <= 8 and
-                largest_component_ratio >= 0.12
+                green_ratio >= 0.14 and
+                mean_saturation >= 40.0 and
+                red_ratio <= 0.10 and
+                significant_components <= 10 and
+                largest_component_ratio >= 0.08
             )
         return (
-            green_ratio >= 0.20 and
-            mean_saturation >= 45.0 and
-            largest_component_ratio >= 0.06 and
-            (red_ratio <= 0.10 or (has_leaf_axis_profile and largest_component_ratio >= 0.10))
+            green_ratio >= 0.14 and
+            mean_saturation >= 40.0 and
+            largest_component_ratio >= 0.05 and
+            (red_ratio <= 0.12 or (has_leaf_axis_profile and largest_component_ratio >= 0.08))
         )
 
     # Basic morphology from extracted features.
@@ -171,10 +171,10 @@ def _is_likely_aloe_image(
     spiky_cluster_profile = largest_component_ratio >= 0.06 and significant_components <= 12 and aspect_ratio >= 0.9
     has_strict_aloe_shape = strict_signals >= 3 and (aloe_leaf_profile or spiky_cluster_profile)
 
-    has_leaf_like_shape = aspect_ratio >= 0.75 and leaf_length_cm >= 1.5
-    has_enough_plant_pixels = plant_area >= 8000
+    has_leaf_like_shape = aspect_ratio >= 0.7 and leaf_length_cm >= 1.3
+    has_enough_plant_pixels = plant_area >= 6000
     has_min_leaf_signal = leaf_count >= 1
-    has_green_closeup_signal = green_ratio >= 0.18 and mean_saturation >= 45.0
+    has_green_closeup_signal = green_ratio >= 0.14 and mean_saturation >= 40.0
 
     if allow_closeup_fallback:
         relaxed_signals = 0
@@ -186,20 +186,20 @@ def _is_likely_aloe_image(
             relaxed_signals += 1
         if has_green_closeup_signal:
             relaxed_signals += 1
-        if relaxed_signals < 2:
+        if relaxed_signals < 1:
             return False
         if red_ratio > 0.10 and not disease_closeup_mode:
             if not (has_leaf_axis_profile and largest_component_ratio >= 0.10 and green_ratio >= 0.12):
                 return False
-        min_component_ratio = 0.02 if disease_closeup_mode else 0.04
+        min_component_ratio = 0.015 if disease_closeup_mode else 0.03
         if largest_component_ratio < min_component_ratio:
             return False
     else:
         if not has_strict_aloe_shape:
             return False
-        if green_ratio < 0.12:
+        if green_ratio < 0.10:
             return False
-        if red_ratio > 0.12:
+        if red_ratio > 0.15:
             return False
 
     if not allow_closeup_fallback and not has_strict_aloe_shape:
