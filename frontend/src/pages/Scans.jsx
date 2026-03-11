@@ -27,18 +27,35 @@ export default function Scans() {
   const detectionLoopRef = useRef(null)
   const detectingRef = useRef(false)
 
+  const loadAllScans = async () => {
+    try {
+      const limit = 100
+      let page = 1
+      let pages = 1
+      const all = []
+
+      while (page <= pages) {
+        const res = await api.get('/scans', { params: { page, limit } })
+        const scansData = res.data?.data?.scans || []
+        if (Array.isArray(scansData)) {
+          all.push(...scansData)
+        }
+        pages = Number(res.data?.pages || 1)
+        page += 1
+      }
+
+      setScans(all)
+      return all
+    } catch (err) {
+      console.log('Scans load error:', err)
+      setError(err.message)
+      return []
+    }
+  }
+
   useEffect(() => {
     setLoading(true)
-    api.get('/scans')
-      .then(res => {
-        const scansData = res.data?.data?.scans || []
-        setScans(Array.isArray(scansData) ? scansData : [])
-      })
-      .catch(err => {
-        console.log('Scans load error:', err)
-        setError(err.message)
-      })
-      .finally(() => setLoading(false))
+    loadAllScans().finally(() => setLoading(false))
     loadVideoDevices()
 
     return () => {
@@ -380,9 +397,7 @@ export default function Scans() {
       const response = await api.post('/scans', form, { headers: { 'Content-Type': 'multipart/form-data' } })
       console.log('Scan upload response:', response.data)
       
-      const res = await api.get('/scans')
-      const scansData = res.data?.data?.scans || []
-      setScans(Array.isArray(scansData) ? scansData : [])
+      await loadAllScans()
       
       // Select the newly created scan
       if (response.data.data.scan) {

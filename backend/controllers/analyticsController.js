@@ -183,7 +183,6 @@ exports.getDailyAnalytics = asyncHandler(async (req, res) => {
     bacterial_soft_rot: 0,
     anthracnose: 0,
     scale_insect: 0,
-    fungal_disease: 0,
     rust: 0
   };
 
@@ -321,7 +320,6 @@ exports.getWeeklyAnalytics = asyncHandler(async (req, res) => {
     bacterial_soft_rot: 0,
     anthracnose: 0,
     scale_insect: 0,
-    fungal_disease: 0,
     rust: 0
   };
 
@@ -467,7 +465,6 @@ exports.getMonthlyAnalytics = asyncHandler(async (req, res) => {
     bacterial_soft_rot: 0,
     anthracnose: 0,
     scale_insect: 0,
-    fungal_disease: 0,
     rust: 0
   };
 
@@ -652,7 +649,6 @@ exports.getUserAnalytics = asyncHandler(async (req, res) => {
     bacterial_soft_rot: 0,
     anthracnose: 0,
     scale_insect: 0,
-    fungal_disease: 0,
     rust: 0
   };
 

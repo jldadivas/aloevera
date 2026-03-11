@@ -18,6 +18,7 @@ export default function Plants() {
   const [treatmentLoading, setTreatmentLoading] = useState(false)
   const [treatmentError, setTreatmentError] = useState('')
   const [treatmentPlan, setTreatmentPlan] = useState(null)
+  const [expandedScanId, setExpandedScanId] = useState(null)
   const treatmentStoragePrefix = 'vera:treatment-progress'
 
   const normalizeId = (value) => {
@@ -25,19 +26,57 @@ export default function Plants() {
     return String(value)
   }
 
+  const toBoolean = (value) => {
+    if (value === true || value === false) return value
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase()
+      if (normalized === 'true') return true
+      if (normalized === 'false') return false
+    }
+    return false
+  }
+
+  const getPlantIdCandidates = (plant) => {
+    const candidates = []
+    const mongoId = normalizeId(plant?._id)
+    const customId = normalizeId(plant?.plant_id)
+    if (mongoId) candidates.push(mongoId)
+    if (customId) candidates.push(customId)
+    return candidates
+  }
+
   const getScanPlantId = (scan) => {
     if (!scan || !scan.plant_id) return null
     if (typeof scan.plant_id === 'string') return normalizeId(scan.plant_id)
-    return normalizeId(scan.plant_id._id || scan.plant_id.id || scan.plant_id)
+    return normalizeId(
+      scan.plant_id._id ||
+      scan.plant_id.id ||
+      scan.plant_id.plant_id ||
+      scan.plant_id
+    )
+  }
+
+  const getPlantForScan = (scan) => {
+    const scanPlantId = getScanPlantId(scan)
+    if (!scanPlantId) return null
+    return plants.find((p) =>
+      normalizeId(p?._id) === scanPlantId || normalizeId(p?.plant_id) === scanPlantId
+    ) || null
+  }
+
+  const scanBelongsToPlant = (scan, plant) => {
+    const scanPlantId = getScanPlantId(scan)
+    if (!scanPlantId) return false
+    const candidates = getPlantIdCandidates(plant)
+    return candidates.some((id) => id === scanPlantId)
   }
 
   const getPlantIsDiseased = (plant) => {
-    const plantId = normalizeId(plant?._id)
     const latestScan = allScans
-      .filter((s) => getScanPlantId(s) === plantId)
+      .filter((s) => scanBelongsToPlant(s, plant))
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0]
 
-    if (latestScan) return latestScan.analysis_result?.disease_detected === true
+    if (latestScan) return toBoolean(latestScan.analysis_result?.disease_detected)
     if (plant.current_status) {
       const severity = plant.current_status.disease_severity?.toLowerCase() || 'none'
       return severity !== 'none' && severity !== 'unknown'
@@ -47,19 +86,23 @@ export default function Plants() {
 
   const getLatestScanForPlant = (plantId) => {
     const normalizedPlantId = normalizeId(plantId)
+    const plant = plants.find((p) => normalizeId(p?._id) === normalizedPlantId || normalizeId(p?.plant_id) === normalizedPlantId)
+    const candidates = plant ? getPlantIdCandidates(plant) : [normalizedPlantId]
     return allScans
-      .filter((s) => getScanPlantId(s) === normalizedPlantId)
+      .filter((s) => candidates.includes(getScanPlantId(s)))
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null
   }
 
   const getScanCountForPlant = (plantId) => {
     const normalizedPlantId = normalizeId(plantId)
-    return allScans.filter((s) => getScanPlantId(s) === normalizedPlantId).length
+    const plant = plants.find((p) => normalizeId(p?._id) === normalizedPlantId || normalizeId(p?.plant_id) === normalizedPlantId)
+    const candidates = plant ? getPlantIdCandidates(plant) : [normalizedPlantId]
+    return allScans.filter((s) => candidates.includes(getScanPlantId(s))).length
   }
 
   const getScanDiseaseName = (scan) => {
     if (!scan?.analysis_result) return 'No scan yet'
-    if (scan.analysis_result.disease_detected) {
+    if (toBoolean(scan.analysis_result.disease_detected)) {
       return scan.analysis_result.disease_name || 'Unknown disease'
     }
     return 'Healthy'
@@ -259,6 +302,31 @@ export default function Plants() {
     const normalizedDisease = normalizeDiseaseKey(diseaseKey)
     if (!normalizedPlantId || !normalizedDisease) return ''
     return `${treatmentStoragePrefix}:${normalizedPlantId}:${normalizedDisease}`
+  }
+
+  const loadAllScans = async () => {
+    try {
+      const limit = 100
+      let page = 1
+      let pages = 1
+      const all = []
+
+      while (page <= pages) {
+        const res = await api.get('/scans', { params: { page, limit } })
+        const scansData = res.data?.data?.scans || []
+        if (Array.isArray(scansData)) {
+          all.push(...scansData)
+        }
+        pages = Number(res.data?.pages || 1)
+        page += 1
+      }
+
+      setAllScans(all)
+      return all
+    } catch (err) {
+      console.log('Error loading scans:', err)
+      return []
+    }
   }
 
   const loadTreatmentProgress = (plantId, diseaseKey) => {
@@ -484,11 +552,7 @@ export default function Plants() {
 
     loadAllPlants()
 
-    api.get('/scans', { params: { page: 1, limit: 500 } })
-      .then((res) => {
-        setAllScans(res.data?.data?.scans || [])
-      })
-      .catch((err) => console.log('Error loading scans:', err))
+    loadAllScans()
   }, [])
 
   useEffect(() => {
@@ -502,9 +566,9 @@ export default function Plants() {
     }
   }, [selectedPlant, showModal])
 
-  const togglePlantDetails = (plant) => {
-    const isSame = selectedPlant?._id === plant._id
-    if (isSame && showModal) {
+  const togglePlantDetails = (plant, scanId) => {
+    if (expandedScanId === scanId) {
+      setExpandedScanId(null)
       setShowModal(false)
       setSelectedPlant(null)
       setActionError('')
@@ -513,22 +577,27 @@ export default function Plants() {
       setTreatmentPlan(null)
       return
     }
-    setSelectedPlant(plant)
+    setExpandedScanId(scanId)
+    if (plant) {
+      setSelectedPlant(plant)
+      restoreTreatmentFromStorageForPlant(plant)
+    } else {
+      setSelectedPlant(null)
+    }
     setActionError('')
     setActionSuccess('')
     setTreatmentError('')
     setTreatmentPlan(null)
     setShowModal(true)
-    restoreTreatmentFromStorageForPlant(plant)
   }
 
-  const scannedPlants = plants.filter((p) => getScanCountForPlant(p._id) > 0)
+  const sortedScans = [...allScans].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
   const totalScansCount = allScans.length
-  const issuesCount = allScans.filter((scan) => scan?.analysis_result?.disease_detected === true).length
+  const issuesCount = allScans.filter((scan) => toBoolean(scan?.analysis_result?.disease_detected)).length
   const healthyCount = Math.max(0, totalScansCount - issuesCount)
-  const filteredPlants = scannedPlants.filter((p) => {
-    if (activeFilter === 'healthy') return !getPlantIsDiseased(p)
-    if (activeFilter === 'issues') return getPlantIsDiseased(p)
+  const filteredScans = sortedScans.filter((scan) => {
+    if (activeFilter === 'healthy') return !toBoolean(scan?.analysis_result?.disease_detected)
+    if (activeFilter === 'issues') return toBoolean(scan?.analysis_result?.disease_detected)
     return true
   })
 
@@ -598,30 +667,37 @@ export default function Plants() {
           </div>
         )}
 
-        {!loading && !error && plants.length > 0 && filteredPlants.length === 0 && (
+        {!loading && !error && plants.length > 0 && filteredScans.length === 0 && (
           <div style={styles.emptyState}>
-            <h3 style={styles.emptyTitle}>No plants in this filter</h3>
+            <h3 style={styles.emptyTitle}>No scans in this filter</h3>
             <p style={styles.emptyText}>
-              Try selecting a different filter to view your plants.
+              Try selecting a different filter to view your scans.
             </p>
           </div>
         )}
 
-        {!loading && !error && filteredPlants.length > 0 && (
+        {!loading && !error && filteredScans.length > 0 && (
           <div style={styles.plantGrid}>
-            {filteredPlants.map((plant) => {
-              const isExpanded = showModal && selectedPlant?._id === plant._id
-              const latestScan = getLatestScanForPlant(plant._id)
-              const totalScanCount = (selectedPlant?._id === plant._id
-                ? plantScans.length
-                : getScanCountForPlant(plant._id))
-              const hasScans = totalScanCount > 0
-              const cardScanCount = hasScans ? 1 : 0
-              const isDiseased = hasScans ? getPlantIsDiseased(plant) : false
+            {filteredScans.map((scan) => {
+              const plant = getPlantForScan(scan)
+              const isExpanded = showModal && expandedScanId === scan._id
+              const latestScan = scan
+              const hasScans = true
+              const cardScanCount = 1
+              const isDiseased = toBoolean(scan?.analysis_result?.disease_detected)
+              const displayPlantId = plant?.plant_id || scan?.plant_id?.plant_id || 'N/A'
+              const displaySpecies = plant?.species || 'Aloe barbadensis'
+              const displayLocation =
+                plant?.location?.farm_name ||
+                plant?.location?.plot_number ||
+                scan?.plant_id?.location?.farm_name ||
+                scan?.plant_id?.location?.plot_number ||
+                'Home'
+              const displayAdded = plant?.createdAt || plant?.created_at || scan?.createdAt
 
               return (
                 <article
-                  key={plant._id}
+                  key={scan._id}
                   style={styles.plantCard}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.background = 'linear-gradient(160deg, #f0faef 0%, #e4f3e5 100%)'
@@ -656,7 +732,7 @@ export default function Plants() {
                         <div style={styles.cardSummary}>
                           <div style={styles.cardSummaryTop}>
                             <div>
-                              <h3 style={styles.plantName}>{plant.plant_id || 'N/A'}</h3>
+                              <h3 style={styles.plantName}>{displayPlantId}</h3>
                               <p style={styles.plantLead}>Lush aloe profile with monitored growth metrics.</p>
                             </div>
                             <span
@@ -672,17 +748,17 @@ export default function Plants() {
                           <div style={styles.infoGrid}>
                             <div style={styles.infoItem}>
                               <span style={styles.infoLabel}>Species</span>
-                              <span style={styles.infoValue}>{plant.species || 'Unknown'}</span>
+                              <span style={styles.infoValue}>{displaySpecies}</span>
                             </div>
                             <div style={styles.infoItem}>
                               <span style={styles.infoLabel}>Location</span>
-                              <span style={styles.infoValue}>{plant.location?.farm_name || plant.location?.plot_number || 'Home'}</span>
+                              <span style={styles.infoValue}>{displayLocation}</span>
                             </div>
                             <div style={styles.infoItem}>
                               <span style={styles.infoLabel}>Added</span>
                               <span style={styles.infoValue}>
-                                {plant.createdAt || plant.created_at
-                                  ? new Date(plant.createdAt || plant.created_at).toLocaleDateString('en-US', {
+                                {displayAdded
+                                  ? new Date(displayAdded).toLocaleDateString('en-US', {
                                     month: 'short',
                                     day: 'numeric',
                                     year: 'numeric'
@@ -735,11 +811,11 @@ export default function Plants() {
                           </div>
                           <div style={styles.quickBox}>
                             <div style={styles.quickLabel}>Soil</div>
-                            <div style={styles.quickValue}>{plant.metadata?.soil_type || 'Balanced'}</div>
+                              <div style={styles.quickValue}>{plant?.metadata?.soil_type || 'Balanced'}</div>
                           </div>
                           <div style={styles.quickBox}>
                             <div style={styles.quickLabel}>Maturity</div>
-                            <div style={styles.quickValue}>{plant.current_status?.harvest_ready ? 'Ready' : 'Growing'}</div>
+                              <div style={styles.quickValue}>{plant?.current_status?.harvest_ready ? 'Ready' : 'Growing'}</div>
                           </div>
                         </div>
                       </div>
@@ -747,7 +823,8 @@ export default function Plants() {
                       <button
                         type="button"
                         style={styles.expandActionBtn}
-                        onClick={() => togglePlantDetails(plant)}
+                        disabled={!plant}
+                        onClick={() => plant && togglePlantDetails(plant, scan._id)}
                         aria-label={isExpanded ? 'Hide plant details' : 'Show plant details'}
                       >
                         {isExpanded ? 'Hide Details' : 'Show Details'}
@@ -772,89 +849,74 @@ export default function Plants() {
                       {actionSuccess && <div style={styles.inlineActionSuccess}>{actionSuccess}</div>}
 
                       <Section title="Basic Information">
-                        <DetailGridItem label="Display ID" value={selectedPlant?.plant_id || 'N/A'} />
-                        <DetailGridItem label="Species" value={selectedPlant?.species || 'Unknown'} />
-                        <DetailGridItem label="Plant ID" value={selectedPlant?.plant_id || 'N/A'} />
-                        <DetailGridItem label="Age" value={getDisplayAge(selectedPlant)} />
+                        <DetailGridItem label="Display ID" value={displayPlantId} />
+                        <DetailGridItem label="Species" value={displaySpecies} />
+                        <DetailGridItem label="Scan ID" value={scan.scan_id || scan._id} />
+                        <DetailGridItem
+                          label="Scan Date"
+                          value={scan.createdAt ? new Date(scan.createdAt).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric'
+                          }) : 'N/A'}
+                        />
                       </Section>
 
-                      {selectedPlant?.location && (
+                      {displayLocation && (
                         <Section title="Location">
-                          {selectedPlant.location.farm_name && <DetailGridItem label="Farm Name" value={selectedPlant.location.farm_name} />}
-                          {selectedPlant.location.plot_number && <DetailGridItem label="Plot Number" value={selectedPlant.location.plot_number} />}
-                          {selectedPlant.location.coordinates?.lat && (
-                            <DetailGridItem
-                              label="Coordinates"
-                              value={`${selectedPlant.location.coordinates.lat}, ${selectedPlant.location.coordinates.lng}`}
-                            />
-                          )}
+                          <DetailGridItem label="Location" value={displayLocation} />
                         </Section>
                       )}
 
-                      {selectedPlant?.current_status && (
-                        <Section title="Health Status">
-                          <DetailGridItem
-                            label="Health Score"
-                            value={getLatestScanForPlant(selectedPlant._id)
-                              ? `${selectedPlant.current_status.health_score || 0}/100`
-                              : 'N/A'}
-                          />
-                          <DetailGridItem
-                            label="Primary Condition"
-                            value={getLatestScanForPlant(selectedPlant._id)
-                              ? (selectedPlant.current_status.primary_condition || 'Healthy')
-                              : 'No scan yet'}
-                          />
-                          <DetailGridItem
-                            label="Disease Severity"
-                            value={getLatestScanForPlant(selectedPlant._id)
-                              ? (selectedPlant.current_status.disease_severity || 'None')
-                              : 'N/A'}
-                          />
-                          <DetailGridItem label="Harvest Ready" value={selectedPlant.current_status.harvest_ready ? 'Yes' : 'No'} />
-                          <DetailGridItem label="Isolated" value={selectedPlant.current_status.is_isolated ? 'Yes' : 'No'} />
-                          <DetailGridItem label="Needs Treatment" value={selectedPlant.current_status.needs_treatment ? 'Yes' : 'No'} />
-                          {selectedPlant.current_status.next_rescan_date && (
-                            <DetailGridItem
-                              label="Next Rescan"
-                              value={new Date(selectedPlant.current_status.next_rescan_date).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                year: 'numeric'
-                              })}
-                            />
-                          )}
-                          {selectedPlant.current_status.treatment_started_at && (
-                            <DetailGridItem
-                              label="Treatment Started"
-                              value={new Date(selectedPlant.current_status.treatment_started_at).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                year: 'numeric'
-                              })}
-                            />
-                          )}
-                          {selectedPlant.current_status.last_scan_date && (
-                            <DetailGridItem label="Last Scan" value={new Date(selectedPlant.current_status.last_scan_date).toLocaleDateString()} />
-                          )}
-                        </Section>
-                      )}
+                      <Section title="Scan Health">
+                        {(() => {
+                          const scanAnalysis = latestScan?.analysis_result || {}
+                          const ageMonths = Number(scanAnalysis.estimated_age_months)
+                          const isAgeReady = Number.isFinite(ageMonths) && ageMonths >= 8
+                          const isDiseaseDetected = toBoolean(scanAnalysis.disease_detected)
+                          const isHarvestReady = Boolean(scanAnalysis.harvest_ready) || (!isDiseaseDetected && isAgeReady)
+                          return (
+                            <>
+                        <DetailGridItem
+                          label="Health Score"
+                          value={`${Math.round(scanAnalysis.health_score ?? scanAnalysis.plant_health_score ?? 0)}/100`}
+                        />
+                        <DetailGridItem
+                          label="Primary Condition"
+                          value={getScanDiseaseName(latestScan)}
+                        />
+                        <DetailGridItem
+                          label="Disease Severity"
+                          value={scanAnalysis.disease_severity || 'None'}
+                        />
+                        <DetailGridItem
+                          label="Harvest Ready"
+                          value={isHarvestReady ? 'Yes' : 'No'}
+                        />
+                        {scanAnalysis.estimated_age_formatted && (
+                          <DetailGridItem label="Estimated Age" value={scanAnalysis.estimated_age_formatted} />
+                        )}
+                            </>
+                          )
+                        })()}
+                      </Section>
 
                       {(() => {
-                        const latestAnalysis = getLatestAnalysisForPlant(selectedPlant)
-                        if (!latestAnalysis) return null
+                        const scanAnalysis = latestScan?.analysis_result
+                        if (!scanAnalysis || !plant) return null
 
-                        const isDiseaseDetected = Boolean(latestAnalysis.disease_detected)
-                        const severityValue = String(latestAnalysis.disease_severity || '').toLowerCase()
+                        const isDiseaseDetected = toBoolean(scanAnalysis.disease_detected)
+                        const severityValue = String(scanAnalysis.disease_severity || '').toLowerCase()
                         const isSevereDisease = isDiseaseDetected && ['high', 'severe'].includes(severityValue)
-                        const daysToHarvest = latestAnalysis.estimated_days_to_harvest
-                        const maturity = String(latestAnalysis.maturity_assessment || '').toLowerCase()
+                        const daysToHarvest = scanAnalysis.estimated_days_to_harvest
+                        const maturity = String(scanAnalysis.maturity_assessment || '').toLowerCase()
+                        const ageMonths = Number(scanAnalysis.estimated_age_months)
+                        const isAgeReady = Number.isFinite(ageMonths) && ageMonths >= 8
                         const isReadyToHarvest = Boolean(
-                          latestAnalysis.harvest_ready ||
-                          (!isDiseaseDetected && ((typeof daysToHarvest === 'number' && daysToHarvest <= 3) || maturity === 'optimal'))
+                          scanAnalysis.harvest_ready ||
+                          (!isDiseaseDetected && (isAgeReady || (typeof daysToHarvest === 'number' && daysToHarvest <= 3) || maturity === 'optimal'))
                         )
-                        const latestScan = getLatestScanForPlant(selectedPlant?._id)
-                        const isChecklistForPlant = treatmentPlan?.plantId === selectedPlant?._id
+                        const isChecklistForPlant = treatmentPlan?.plantId === plant._id
                         const checklistDoneCount = isChecklistForPlant
                           ? treatmentPlan.steps.filter((_, idx) => Boolean(treatmentPlan.checked?.[idx])).length
                           : 0
@@ -873,7 +935,7 @@ export default function Plants() {
                                     type="button"
                                     style={styles.actionBtnWarn}
                                     disabled={actionLoading}
-                                    onClick={() => applyPlantAction(selectedPlant._id, latestScan, 'isolate', 'Plant isolated from healthy batch.')}
+                                    onClick={() => applyPlantAction(plant._id, latestScan, 'isolate', 'Plant isolated from healthy batch.')}
                                   >
                                     {actionLoading ? 'Saving...' : 'Isolate Plant'}
                                   </button>
@@ -881,7 +943,7 @@ export default function Plants() {
                                     type="button"
                                     style={styles.actionBtnPrimary}
                                     disabled={actionLoading || treatmentLoading}
-                                    onClick={() => startTreatmentFlow(selectedPlant._id, latestScan, latestAnalysis)}
+                                    onClick={() => startTreatmentFlow(plant._id, latestScan, scanAnalysis)}
                                   >
                                     {actionLoading || treatmentLoading ? 'Loading...' : 'Start Treatment'}
                                   </button>
@@ -889,7 +951,7 @@ export default function Plants() {
                                     type="button"
                                     style={styles.actionBtnNeutral}
                                     disabled={actionLoading}
-                                    onClick={() => applyPlantAction(selectedPlant._id, latestScan, 'rescan_3_days', 'Rescan scheduled after 3 days.')}
+                                    onClick={() => applyPlantAction(plant._id, latestScan, 'rescan_3_days', 'Rescan scheduled after 3 days.')}
                                   >
                                     {actionLoading ? 'Saving...' : 'Rescan in 3 Days'}
                                   </button>
@@ -922,7 +984,7 @@ export default function Plants() {
                                           type="button"
                                           style={styles.actionBtnNeutral}
                                           disabled={actionLoading}
-                                          onClick={() => applyPlantAction(selectedPlant._id, latestScan, 'rescan_3_days', 'Treatment done. Rescan scheduled after 3 days.')}
+                                          onClick={() => applyPlantAction(plant._id, latestScan, 'rescan_3_days', 'Treatment done. Rescan scheduled after 3 days.')}
                                         >
                                           {actionLoading ? 'Saving...' : 'Schedule Rescan (3 Days)'}
                                         </button>
@@ -949,7 +1011,7 @@ export default function Plants() {
                                     type="button"
                                     style={styles.actionBtnWarn}
                                     disabled={actionLoading}
-                                    onClick={() => applyPlantAction(selectedPlant._id, latestScan, 'remove_infected_leaves', 'Removed infected leaves as containment.')}
+                                    onClick={() => applyPlantAction(plant._id, latestScan, 'remove_infected_leaves', 'Removed infected leaves as containment.')}
                                   >
                                     {actionLoading ? 'Saving...' : 'Remove Infected Leaves'}
                                   </button>
@@ -957,7 +1019,7 @@ export default function Plants() {
                                     type="button"
                                     style={styles.actionBtnNeutral}
                                     disabled={actionLoading}
-                                    onClick={() => applyPlantAction(selectedPlant._id, latestScan, 'disinfect_area', 'Tools and area disinfected.')}
+                                    onClick={() => applyPlantAction(plant._id, latestScan, 'disinfect_area', 'Tools and area disinfected.')}
                                   >
                                     {actionLoading ? 'Saving...' : 'Disinfect Area'}
                                   </button>
@@ -965,7 +1027,7 @@ export default function Plants() {
                                     type="button"
                                     style={styles.actionBtnNeutral}
                                     disabled={actionLoading}
-                                    onClick={() => applyPlantAction(selectedPlant._id, latestScan, 'spot_check_nearby', 'Spot-check scan requested for nearby plants.')}
+                                    onClick={() => applyPlantAction(plant._id, latestScan, 'spot_check_nearby', 'Spot-check scan requested for nearby plants.')}
                                   >
                                     {actionLoading ? 'Saving...' : 'Spot Check Nearby'}
                                   </button>
@@ -982,7 +1044,7 @@ export default function Plants() {
                                     type="button"
                                     style={styles.actionBtnPrimary}
                                     disabled={actionLoading}
-                                    onClick={() => applyPlantAction(selectedPlant._id, latestScan, 'mark_for_harvest', 'Marked for harvest queue.')}
+                                    onClick={() => applyPlantAction(plant._id, latestScan, 'mark_for_harvest', 'Marked for harvest queue.')}
                                   >
                                     {actionLoading ? 'Saving...' : 'Mark for Harvest'}
                                   </button>
@@ -990,17 +1052,9 @@ export default function Plants() {
                                     type="button"
                                     style={styles.actionBtnPrimary}
                                     disabled={actionLoading}
-                                    onClick={() => applyPlantAction(selectedPlant._id, latestScan, 'harvest_completed', 'Harvest completed.')}
+                                    onClick={() => applyPlantAction(plant._id, latestScan, 'harvest_completed', 'Harvest completed.')}
                                   >
                                     {actionLoading ? 'Saving...' : 'Harvest Completed'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    style={styles.actionBtnNeutral}
-                                    disabled={actionLoading}
-                                    onClick={() => applyPlantAction(selectedPlant._id, latestScan, 'log_yield', 'Yield log saved before/after harvest batch.')}
-                                  >
-                                    {actionLoading ? 'Saving...' : 'Log Yield'}
                                   </button>
                                 </div>
                               </div>
@@ -1009,68 +1063,7 @@ export default function Plants() {
                         )
                       })()}
 
-                      {Array.isArray(selectedPlant?.management_logs) && selectedPlant.management_logs.length > 0 && (
-                        <Section title="Recent Actions">
-                          <div style={styles.scanHistoryList}>
-                            {[...selectedPlant.management_logs]
-                              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-                              .slice(0, 5)
-                              .map((log, idx) => (
-                                <div key={`${log.created_at || idx}-${idx}`} style={styles.scanRow}>
-                                  <div>
-                                    <div style={styles.scanDate}>{(log.action || 'action').replaceAll('_', ' ')}</div>
-                                    <div style={styles.scanTime}>
-                                      {log.created_at
-                                        ? new Date(log.created_at).toLocaleString('en-US', {
-                                          month: 'short',
-                                          day: 'numeric',
-                                          hour: '2-digit',
-                                          minute: '2-digit'
-                                        })
-                                        : 'No timestamp'}
-                                    </div>
-                                  </div>
-                                  <div style={styles.scanDisease}>{log.note || '-'}</div>
-                                </div>
-                              ))}
-                          </div>
-                        </Section>
-                      )}
 
-                      {plantScans.length > 0 && (
-                        <Section title="Scan History">
-                          <div style={styles.scanHistoryList}>
-                            {plantScans.map((scan) => (
-                              <div key={scan._id} style={styles.scanRow}>
-                                <div>
-                                  <div style={styles.scanDate}>
-                                    {new Date(scan.createdAt).toLocaleDateString('en-US', {
-                                      weekday: 'short',
-                                      month: 'short',
-                                      day: 'numeric'
-                                    })}
-                                  </div>
-                                  <div style={styles.scanTime}>
-                                    {new Date(scan.createdAt).toLocaleTimeString('en-US', {
-                                      hour: '2-digit',
-                                      minute: '2-digit'
-                                    })}
-                                  </div>
-                                </div>
-                                <div style={{ ...styles.badge, ...(scan.analysis_result?.disease_detected ? styles.badgeBad : styles.badgeGood) }}>
-                                  {scan.analysis_result?.disease_detected ? 'Diseased' : 'Healthy'}
-                                </div>
-                                <div style={styles.scanDisease}>
-                                  {scan.analysis_result?.disease_name || (scan.analysis_result?.disease_detected ? 'Unknown disease' : 'Healthy')}
-                                </div>
-                                <div style={styles.scanScore}>
-                                  {parseFloat(scan.analysis_result?.health_score ?? scan.analysis_result?.plant_health_score ?? 0).toFixed(2)}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </Section>
-                      )}
 
                       {selectedPlant?.metadata && (
                         <Section title="Metadata">
@@ -1086,6 +1079,7 @@ export default function Plants() {
             })}
           </div>
         )}
+
       </div>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>

@@ -191,7 +191,7 @@ export default function Analytics() {
     recent_scan_activity: data.recent_scan_activity || []
   }
   const averageConfidencePercent = toConfidencePercent(safeData.average_confidence_score)
-  const hiddenConditionKeys = new Set(['rust'])
+  const hiddenConditionKeys = new Set(['rust', 'fungal_disease'])
   const allConditionEntries = Object.entries(safeData.condition_distribution || {})
   const visibleConditionEntries = allConditionEntries.filter(
     ([condition]) => !hiddenConditionKeys.has(String(condition || '').toLowerCase())

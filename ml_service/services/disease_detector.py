@@ -27,7 +27,7 @@ class DiseaseDetector:
         4: "bacterial_soft_rot"
     }
     
-    CONFIDENCE_THRESHOLD = 0.5  # Default threshold for normal scans
+    CONFIDENCE_THRESHOLD = 0.25  # Default threshold for normal scans
     LIVE_CONFIDENCE_THRESHOLD = 0.3  # Lower threshold for live preview
     
     def __init__(self, model_path: str = None):
@@ -119,31 +119,33 @@ class DiseaseDetector:
         try:
             if YOLO is None:
                 raise ImportError("ultralytics not installed. Run: pip install ultralytics")
-            
+
+            if not self.model_path:
+                raise FileNotFoundError("Custom model path is required for disease detection.")
+
             model_loaded = False
-            
-            # Try to load custom model
-            if self.model_path:
-                # Try absolute path first
-                if os.path.exists(self.model_path):
-                    self.model = YOLO(self.model_path)
+
+            # Try absolute path first
+            if os.path.exists(self.model_path):
+                self.model = YOLO(self.model_path)
+                model_loaded = True
+                print(f"✅ Loaded custom model from: {self.model_path}")
+            else:
+                # Try relative to current directory
+                alt_path = os.path.join(os.getcwd(), self.model_path)
+                if os.path.exists(alt_path):
+                    self.model = YOLO(alt_path)
                     model_loaded = True
-                    print(f"✅ Loaded custom model from: {self.model_path}")
+                    print(f"✅ Loaded custom model from: {alt_path}")
                 else:
-                    # Try relative to current directory
-                    alt_path = os.path.join(os.getcwd(), self.model_path)
-                    if os.path.exists(alt_path):
-                        self.model = YOLO(alt_path)
-                        model_loaded = True
-                        print(f"✅ Loaded custom model from: {alt_path}")
-            
-            # Fallback to default model
+                    raise FileNotFoundError(f"Custom model not found: {self.model_path}")
+
             if not model_loaded:
-                self.model = YOLO('yolov8n.pt')
-                print("⚠️ Using default YOLOv8n model. For disease detection, provide a trained model path.")
+                raise FileNotFoundError("Custom model path is required for disease detection.")
         except Exception as e:
             print(f"❌ Error loading model: {e}")
             self.model = None
+
     def _get_class_name(self, cls_id: int) -> str:
         """Resolve class name from model metadata, with static fallback."""
         if self.model is not None and hasattr(self.model, "names"):
@@ -179,6 +181,8 @@ class DiseaseDetector:
             detections = []
             health_status = "healthy"  # default
             confidence = 0
+            max_conf_any = 0.0
+            max_conf_healthy = 0.0
             
             for r in results:
                 boxes = r.boxes
@@ -205,6 +209,10 @@ class DiseaseDetector:
                         "class_id": cls_id
                     }
                     detections.append(detection)
+                    if conf > max_conf_any:
+                        max_conf_any = conf
+                    if disease_name in ("healthy", "unknown") and conf > max_conf_healthy:
+                        max_conf_healthy = conf
                     
                     # Update health status (worst case)
                     if disease_name not in ("healthy", "unknown") and conf > confidence:
@@ -212,9 +220,12 @@ class DiseaseDetector:
                         confidence = conf
             
             # If no diseased detections, it's healthy
-            if not detections or health_status == "healthy":
+            if not detections:
                 health_status = "healthy"
-                confidence = 0.95  # High confidence if no disease detected
+                confidence = 0.0
+            elif health_status == "healthy":
+                health_status = "healthy"
+                confidence = max(max_conf_healthy, max_conf_any)
             
             return {
                 "success": True,
@@ -272,6 +283,8 @@ class DiseaseDetector:
             detections = []
             health_status = "healthy"
             confidence = 0
+            max_conf_any = 0.0
+            max_conf_healthy = 0.0
             
             print(f"[DEBUG] Model results count: {len(results)}")
             
@@ -303,6 +316,10 @@ class DiseaseDetector:
                         "class_id": cls_id
                     }
                     detections.append(detection)
+                    if conf > max_conf_any:
+                        max_conf_any = conf
+                    if disease_name in ("healthy", "unknown") and conf > max_conf_healthy:
+                        max_conf_healthy = conf
                     
                     # Accept detection if above the active threshold
                     if conf > threshold:
@@ -311,9 +328,12 @@ class DiseaseDetector:
                             confidence = conf
                             print(f"[DEBUG] Updated health_status to {disease_name} with confidence {conf:.4f}")
             
-            if not detections or health_status == "healthy":
+            if not detections:
                 health_status = "healthy"
-                confidence = 0.95
+                confidence = 0.0
+            elif health_status == "healthy":
+                health_status = "healthy"
+                confidence = max(max_conf_healthy, max_conf_any)
                 # Keep boxes in live mode so frontend can draw what YOLO sees, even if final class is healthy.
                 if not live_mode:
                     detections = []
@@ -367,5 +387,6 @@ class DiseaseDetector:
             ]
         }
         return recommendations.get(disease, ["Monitor plant health"])
+
 
 

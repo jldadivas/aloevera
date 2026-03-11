@@ -6,6 +6,16 @@ const asNumber = (value, fallback) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const toBoolean = (value) => {
+  if (value === true || value === false) return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+  return undefined;
+};
+
 const normalizeKey = (value = '') => String(value).toLowerCase().trim().replace(/[-\s]+/g, '_');
 
 const isHealthyMarker = (value = '') => {
@@ -15,7 +25,8 @@ const isHealthyMarker = (value = '') => {
 
 const hasDiseaseInAnalysis = (analysis = {}) => {
   if (!analysis) return false;
-  if (analysis.disease_detected === true) return true;
+  const detectedFlag = toBoolean(analysis.disease_detected);
+  if (detectedFlag !== undefined) return detectedFlag;
   if (!isHealthyMarker(analysis.disease_severity)) return true;
   if (Array.isArray(analysis.detected_conditions)) {
     const hasFlagged = analysis.detected_conditions.some((item) => !isHealthyMarker(item));
@@ -25,6 +36,8 @@ const hasDiseaseInAnalysis = (analysis = {}) => {
 };
 
 const resolvePrimaryCondition = (analysis = {}) => {
+  const detectedFlag = toBoolean(analysis.disease_detected);
+  if (detectedFlag === false) return 'healthy';
   if (Array.isArray(analysis.detected_conditions)) {
     const flagged = analysis.detected_conditions
       .map((item) => normalizeKey(item))
@@ -71,12 +84,15 @@ async function syncPlantStatusFromLatestScan(plantId, options = {}) {
   const healthScore = asNumber(analysis.health_score ?? analysis.plant_health_score, 95);
   const primaryCondition = resolvePrimaryCondition(analysis);
   const diseaseSeverity = analysis.disease_severity || (diseaseDetected ? 'low' : 'none');
+  const estimatedAgeMonths = asNumber(analysis.estimated_age_months, null);
+  const isHealthy = !diseaseDetected;
+  const harvestReady = Boolean(analysis.harvest_ready) || (isHealthy && estimatedAgeMonths !== null && estimatedAgeMonths >= 8);
 
   await Plant.findByIdAndUpdate(plantId, {
     $set: {
       'current_status.last_scan_date': latestScan.createdAt || new Date(),
       'current_status.health_score': healthScore,
-      'current_status.harvest_ready': Boolean(analysis.harvest_ready),
+      'current_status.harvest_ready': harvestReady,
       'current_status.primary_condition': primaryCondition,
       'current_status.disease_severity': diseaseSeverity,
       'current_status.estimated_days_to_harvest': analysis.estimated_days_to_harvest ?? null

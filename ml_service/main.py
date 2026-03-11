@@ -107,7 +107,7 @@ def _is_likely_aloe_image(
             return False
 
     # Aloe-like images should have enough green coverage.
-    if green_ratio < 0.05:
+    if green_ratio < 0.02:
         return False
 
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(green_mask, connectivity=8)
@@ -208,7 +208,7 @@ def _is_likely_aloe_image(
     return True
 
 
-def _has_confident_disease_signal(disease_result: dict) -> bool:
+def _has_confident_disease_signal(disease_result: dict, min_conf: float = 0.25) -> bool:
     """
     True when detector sees a reasonably confident disease/pest signal.
     """
@@ -232,10 +232,10 @@ def _has_confident_disease_signal(disease_result: dict) -> bool:
         if conf > max_conf:
             max_conf = conf
 
-    return max_conf >= 0.55
+    return max_conf >= min_conf
 
 
-def _has_confident_pest_signal(disease_result: dict, min_conf: float = 0.35) -> bool:
+def _has_confident_pest_signal(disease_result: dict, min_conf: float = 0.25) -> bool:
     """
     True when detector sees a confident mealybug/spider_mite class.
     """
@@ -265,14 +265,18 @@ def init_models():
     global disease_detector, age_estimator
     
     try:
-        disease_detector = DiseaseDetector(model_path='models/AV5.pt')
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        disease_model_path = os.path.join(base_dir, "models", "AV5.pt")
+        disease_detector = DiseaseDetector(model_path=disease_model_path)
         print("✅ Disease Detector loaded")
     except Exception as e:
         print(f"❌ Error loading Disease Detector: {e}")
         disease_detector = None
     
     try:
-        age_estimator = AgeEstimator(model_path='models/ageV3.pt')
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        age_model_path = os.path.join(base_dir, "models", "ageV3.pt")
+        age_estimator = AgeEstimator(model_path=age_model_path)
         print("✅ Age Estimator loaded")
     except Exception as e:
         print(f"❌ Error loading Age Estimator: {e}")
