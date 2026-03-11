@@ -642,7 +642,7 @@ export default function Scans() {
                     {new Date(scan.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                   </div>
                   <div style={{fontSize: '13px', fontWeight: '600', color: '#eef8f1'}}>
-                    Health Score: {scan.analysis_result?.health_score || 0}/100
+                    Health Score: {Math.round(scan.analysis_result?.health_score ?? 0)}/100
                   </div>
                 </div>
               </div>

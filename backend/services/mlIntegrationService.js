@@ -274,7 +274,7 @@ function calculateHealthScore(diseaseStatus, confidence) {
   
   const severityScore = confidence * 100;
   const healthScore = 100 - severityScore;
-  return Math.max(20, healthScore);
+  return Math.round(Math.max(20, healthScore));
 }
 
 /**
