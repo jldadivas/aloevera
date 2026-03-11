@@ -55,6 +55,10 @@ async function syncPlantStatusFromLatestScan(plantId, options = {}) {
   if (!plantId) return;
   const { deletePlantIfNoScans = false } = options;
 
+  // Fetch plant to allow fallback age estimation using planting_date
+  const plant = await Plant.findById(plantId).lean();
+  if (!plant) return;
+
   const latestScan = await Scan.findOne({ plant_id: plantId })
     .sort({ createdAt: -1 })
     .select('analysis_result createdAt')
@@ -84,9 +88,27 @@ async function syncPlantStatusFromLatestScan(plantId, options = {}) {
   const healthScore = asNumber(analysis.health_score ?? analysis.plant_health_score, 95);
   const primaryCondition = resolvePrimaryCondition(analysis);
   const diseaseSeverity = analysis.disease_severity || (diseaseDetected ? 'low' : 'none');
+
+  // Prefer ML-estimated age; fall back to planting_date based age if missing
   const estimatedAgeMonths = asNumber(analysis.estimated_age_months, null);
+  const plantAgeMonths = plant?.planting_date
+    ? Math.max(
+        0,
+        Math.round(
+          (Date.now() - new Date(plant.planting_date).getTime()) / (1000 * 60 * 60 * 24 * 30)
+        )
+      )
+    : null;
+  const resolvedAgeMonths = estimatedAgeMonths ?? plantAgeMonths;
+
   const isHealthy = !diseaseDetected;
-  const harvestReady = Boolean(analysis.harvest_ready) || (isHealthy && estimatedAgeMonths !== null && estimatedAgeMonths >= 8);
+  const harvestReady =
+    Boolean(analysis.harvest_ready) ||
+    (isHealthy && resolvedAgeMonths !== null && resolvedAgeMonths >= 8);
+
+  const estimatedDaysToHarvest =
+    analysis.estimated_days_to_harvest ??
+    (resolvedAgeMonths !== null ? Math.max(0, Math.round((8 - resolvedAgeMonths) * 30)) : null);
 
   await Plant.findByIdAndUpdate(plantId, {
     $set: {
@@ -95,7 +117,7 @@ async function syncPlantStatusFromLatestScan(plantId, options = {}) {
       'current_status.harvest_ready': harvestReady,
       'current_status.primary_condition': primaryCondition,
       'current_status.disease_severity': diseaseSeverity,
-      'current_status.estimated_days_to_harvest': analysis.estimated_days_to_harvest ?? null
+      'current_status.estimated_days_to_harvest': estimatedDaysToHarvest
     }
   });
 }

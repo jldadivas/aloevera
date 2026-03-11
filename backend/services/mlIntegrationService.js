@@ -211,6 +211,11 @@ exports.formatScanResults = (mlResult, imageData = {}) => {
     ? 'healthy'
     : (normalizeLabel(scanData.health_status) || 'unknown');
 
+  const isHealthy = normalizeLabel(scanData.health_status) === 'healthy';
+  const ageMonths = scanData.age_estimation?.age_months;
+  const isAgeReady = typeof ageMonths === 'number' && Number.isFinite(ageMonths) && ageMonths >= 8;
+  const harvestReady = isHealthy && isAgeReady;
+
   return {
     yolo_predictions: detections.map(detection => ({
       class: detection.disease,
@@ -231,9 +236,9 @@ exports.formatScanResults = (mlResult, imageData = {}) => {
       age_confidence: scanData.age_estimation?.confidence || 0,
       detected_conditions: detectedConditions.length > 0 ? detectedConditions : [fallbackCondition],
       detected_pests: detectedPests,
-      harvest_ready: false,
-      maturity_assessment: assessMaturity(scanData.age_estimation?.age_months),
-      estimated_days_to_harvest: estimateDaysToHarvest(scanData.age_estimation?.age_months)
+      harvest_ready: harvestReady,
+      maturity_assessment: assessMaturity(ageMonths),
+      estimated_days_to_harvest: estimateDaysToHarvest(ageMonths)
     },
     recommendations: scanData.recommendations || [],
     extracted_features: {
@@ -284,7 +289,7 @@ function assessMaturity(ageMonths) {
   if (!ageMonths) return 'immature';
   if (ageMonths < 1) return 'immature';
   if (ageMonths < 6) return 'maturing';
-  if (ageMonths < 12) return 'maturing';
+  if (ageMonths < 8) return 'maturing';
   if (ageMonths < 24) return 'optimal';
   return 'over-mature';
 }
@@ -294,9 +299,9 @@ function assessMaturity(ageMonths) {
  */
 function estimateDaysToHarvest(ageMonths) {
   if (!ageMonths) return null;
-  
-  // Aloe vera is typically ready to harvest after 3-5 years (36-60 months)
-  const harvestReadyAt = 48; // 4 years
+
+  // Project: mark harvest-ready starting at 8 months
+  const harvestReadyAt = 8;
   const daysRemaining = Math.max(0, (harvestReadyAt - ageMonths) * 30);
   return Math.round(daysRemaining);
 }

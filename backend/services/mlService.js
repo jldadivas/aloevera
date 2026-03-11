@@ -138,10 +138,10 @@ class MLService {
     const colorIndex = visual_features?.leaf_color_index || 0.5;
     healthScore = healthScore * (0.7 + colorIndex * 0.3);
 
-    // Determine harvest readiness
-    const harvestReady = age_estimation?.maturity_assessment === 'optimal' &&
-                         diseaseSeverity === 'none' &&
-                         healthScore >= 80;
+    // Determine harvest readiness (project rule: healthy + age >= 8 months)
+    const ageMonths = age_estimation?.age_months;
+    const isAgeReady = typeof ageMonths === 'number' && Number.isFinite(ageMonths) && ageMonths >= 8;
+    const harvestReady = isAgeReady && diseaseSeverity === 'none';
 
     // Determine recommended action
     let recommendedAction = 'monitor_daily';
