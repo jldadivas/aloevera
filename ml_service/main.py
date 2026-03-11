@@ -3,6 +3,36 @@ FastAPI ML Service for YOLOv8 Disease Detection and Age Estimation
 Main server for Aloe Vera plant analysis
 """
 
+# ============================================================
+# PyTorch 2.6+ FIX — must run BEFORE any ultralytics import
+# ============================================================
+import torch
+
+try:
+    import ultralytics.nn.tasks as _tasks
+    import ultralytics.nn.modules.head as _head
+
+    _safe_globals = []
+    for _name in [
+        "DetectionModel", "SegmentationModel", "PoseModel",
+        "ClassificationModel", "WorldModel",
+    ]:
+        _cls = getattr(_tasks, _name, None)
+        if _cls is not None:
+            _safe_globals.append(_cls)
+
+    for _name in ["Detect", "Segment", "Pose", "Classify", "OBB", "WorldDetect"]:
+        _cls = getattr(_head, _name, None)
+        if _cls is not None:
+            _safe_globals.append(_cls)
+
+    if _safe_globals:
+        torch.serialization.add_safe_globals(_safe_globals)
+        print(f"✅ PyTorch safe globals registered ({len(_safe_globals)} classes)")
+except Exception as _e:
+    print(f"⚠️  Safe globals registration skipped: {_e}")
+# ============================================================
+
 from fastapi import FastAPI, File, UploadFile, HTTPException, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -72,7 +102,6 @@ def _is_likely_aloe_image(
     frame_area = float(green_mask.shape[0] * green_mask.shape[1])
 
     # Reject fruit-like frames where red dominates relative to green foreground.
-    # Keep a looser gate only for disease close-up mode.
     if not disease_closeup_mode:
         if red_ratio >= 0.10 and red_ratio > (green_ratio * 0.60):
             return False
@@ -106,7 +135,6 @@ def _is_likely_aloe_image(
     # Fallback path: close-up disease/pest shots may fail feature extraction but still be Aloe leaves.
     if feature_probe.get("error"):
         if not allow_closeup_fallback:
-            # Healthy-mode fallback for valid Aloe photos when feature extraction misses.
             return (
                 green_ratio >= 0.18 and
                 mean_saturation >= 45.0 and
@@ -127,9 +155,6 @@ def _is_likely_aloe_image(
     leaf_length_cm = float(feature_probe.get("leaf_length_cm", 0) or 0)
     plant_area = float(feature_probe.get("plant_area", 0) or 0)
 
-    # Strict aloe morphology checks for healthy/no-disease uploads.
-    # Tuned to reduce false rejects on valid potted Aloe photos while still
-    # requiring multiple Aloe-like signals.
     strict_signals = 0
     if leaf_count >= 1:
         strict_signals += 1
@@ -146,12 +171,9 @@ def _is_likely_aloe_image(
     spiky_cluster_profile = largest_component_ratio >= 0.06 and significant_components <= 12 and aspect_ratio >= 0.9
     has_strict_aloe_shape = strict_signals >= 3 and (aloe_leaf_profile or spiky_cluster_profile)
 
-    # Relaxed checks for diseased close-up uploads.
     has_leaf_like_shape = aspect_ratio >= 0.75 and leaf_length_cm >= 1.5
     has_enough_plant_pixels = plant_area >= 8000
     has_min_leaf_signal = leaf_count >= 1
-
-    # Strong green foreground can also indicate a close-up Aloe leaf.
     has_green_closeup_signal = green_ratio >= 0.18 and mean_saturation >= 45.0
 
     if allow_closeup_fallback:
@@ -166,9 +188,7 @@ def _is_likely_aloe_image(
             relaxed_signals += 1
         if relaxed_signals < 2:
             return False
-        # In disease close-up mode, allow more red/noisy background and tiny crop regions.
         if red_ratio > 0.10 and not disease_closeup_mode:
-            # Allow colored backgrounds if the green component strongly looks like a leaf closeup.
             if not (has_leaf_axis_profile and largest_component_ratio >= 0.10 and green_ratio >= 0.12):
                 return False
         min_component_ratio = 0.02 if disease_closeup_mode else 0.04
@@ -191,7 +211,6 @@ def _is_likely_aloe_image(
 def _has_confident_disease_signal(disease_result: dict) -> bool:
     """
     True when detector sees a reasonably confident disease/pest signal.
-    Used to allow infected close-up Aloe photos that may fail strict morphology.
     """
     if not isinstance(disease_result, dict):
         return False
@@ -219,7 +238,6 @@ def _has_confident_disease_signal(disease_result: dict) -> bool:
 def _has_confident_pest_signal(disease_result: dict, min_conf: float = 0.35) -> bool:
     """
     True when detector sees a confident mealybug/spider_mite class.
-    This unlocks close-up pest shots on Aloe leaves.
     """
     if not isinstance(disease_result, dict):
         return False
@@ -247,7 +265,6 @@ def init_models():
     global disease_detector, age_estimator
     
     try:
-        # Initialize disease detector with trained model
         disease_detector = DiseaseDetector(model_path='models/AV5.pt')
         print("✅ Disease Detector loaded")
     except Exception as e:
@@ -255,7 +272,6 @@ def init_models():
         disease_detector = None
     
     try:
-        # Initialize age estimator (no trained model yet)
         age_estimator = AgeEstimator(model_path='models/ageV3.pt')
         print("✅ Age Estimator loaded")
     except Exception as e:
@@ -279,7 +295,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Add CORS middleware for backend integration
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -305,18 +321,11 @@ async def health_check():
 async def scan_plant(file: UploadFile = File(...)):
     """
     Complete plant scan: disease detection + age estimation
-    
-    Args:
-        file: Image file (JPG, PNG, etc.)
-    
-    Returns:
-        Comprehensive scan results
     """
     if not disease_detector or not age_estimator:
         raise HTTPException(status_code=503, detail="ML models not ready")
     
     try:
-        # Read image bytes
         contents = await file.read()
         print(f"[AGE DEBUG] /scan received file={file.filename} bytes={len(contents)}")
         
@@ -326,8 +335,6 @@ async def scan_plant(file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail=disease_result.get("error"))
 
         # Validate Aloe for every scan request.
-        # Run strict gate first, then a safer relaxed fallback.
-        # For clear disease/pest detections, allow infected close-up Aloe images.
         strict_aloe = _is_likely_aloe_image(contents, allow_closeup_fallback=False)
         relaxed_aloe = _is_likely_aloe_image(contents, allow_closeup_fallback=True)
         disease_closeup_ok = _has_confident_disease_signal(disease_result) and _is_likely_aloe_image(
@@ -342,9 +349,6 @@ async def scan_plant(file: UploadFile = File(...)):
         )
         health_status = str(disease_result.get("health_status", "")).strip().lower()
 
-        # Healthy uploads must pass Aloe validation too.
-        # Accept strict OR relaxed morphology to reduce false rejects on valid
-        # potted Aloe photos, while red-dominance guard still blocks fruits.
         if health_status == "healthy":
             if not (strict_aloe or relaxed_aloe):
                 raise HTTPException(
@@ -423,12 +427,6 @@ async def detect_disease(
 ):
     """
     Detect disease in plant image
-    
-    Args:
-        file: Image file
-    
-    Returns:
-        Disease detection results
     """
     if not disease_detector:
         raise HTTPException(status_code=503, detail="Disease detector not ready")
@@ -440,7 +438,6 @@ async def detect_disease(
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error"))
         
-        # Add recommendations
         disease = result.get("health_status")
         recommendations = disease_detector.get_recommendations(disease)
         result["recommendations"] = recommendations
@@ -460,12 +457,6 @@ async def detect_disease(
 async def estimate_age(file: UploadFile = File(...)):
     """
     Estimate plant age from image
-    
-    Args:
-        file: Image file
-    
-    Returns:
-        Age estimation results
     """
     if not age_estimator:
         raise HTTPException(status_code=503, detail="Age estimator not ready")
@@ -492,12 +483,6 @@ async def estimate_age(file: UploadFile = File(...)):
 async def get_recommendations(disease: str):
     """
     Get treatment recommendations for a disease
-    
-    Args:
-        disease: Disease name (healthy, leaf_spot, rust, fungal_disease, bacterial_soft_rot)
-    
-    Returns:
-        List of recommendations
     """
     if not disease_detector:
         raise HTTPException(status_code=503, detail="Disease detector not ready")
