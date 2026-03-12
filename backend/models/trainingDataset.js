@@ -67,11 +67,28 @@ trainingDatasetSchema.statics.getPendingValidations = function(limit = 50) {
 
 // Static method to export training batch
 trainingDatasetSchema.statics.exportBatch = async function(batchName) {
+  // Prevent re-exporting the same batch name
+  const alreadyExported = await this.exists({
+    training_batch: batchName,
+    added_to_training: true
+  });
+  if (alreadyExported) {
+    const err = new Error('This batch was already exported.');
+    err.code = 'BATCH_ALREADY_EXPORTED';
+    throw err;
+  }
+
   const images = await this.find({
     validation_status: 'validated',
     added_to_training: false
   }).limit(1000);
-  
+
+  if (!images.length) {
+    const err = new Error('No validated images available for export.');
+    err.code = 'NO_IMAGES_FOR_EXPORT';
+    throw err;
+  }
+
   const imageIds = images.map(img => img._id);
   await this.updateMany(
     { _id: { $in: imageIds } },

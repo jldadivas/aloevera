@@ -164,17 +164,28 @@ exports.exportBatch = asyncHandler(async (req, res) => {
     });
   }
 
-  const batch = await TrainingDataset.exportBatch(batchName);
+  try {
+    const batch = await TrainingDataset.exportBatch(batchName);
 
-  res.status(200).json({
-    success: true,
-    count: batch.length,
-    data: {
-      batch,
-      batch_name: batchName
-    },
-    message: `Exported ${batch.length} images for training batch: ${batchName}`
-  });
+    return res.status(200).json({
+      success: true,
+      count: batch.length,
+      data: {
+        batch,
+        batch_name: batchName
+      },
+      message: `Exported ${batch.length} images for training batch: ${batchName}`
+    });
+  } catch (error) {
+    const status = error.code === 'BATCH_ALREADY_EXPORTED' ? 409
+      : error.code === 'NO_IMAGES_FOR_EXPORT' ? 404
+      : 500;
+
+    return res.status(status).json({
+      success: false,
+      error: error.message || 'Failed to export training batch'
+    });
+  }
 });
 
 // @desc    Auto-flag low confidence predictions

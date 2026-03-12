@@ -383,6 +383,9 @@ exports.exportScanImagesZip = controllerWrapper(async (req, res) => {
   const { startDate, endDate, disease, minConfidence, plantSpecies } = req.query;
   const query = await buildScanQuery({ startDate, endDate, disease, minConfidence, plantSpecies });
 
+  // Only export scans that have not been exported before
+  query['export_status.images_exported'] = { $ne: true };
+
   const scans = await Scan.find(query)
     .populate('user_id', 'email full_name')
     .populate('plant_id', 'plant_id')
@@ -398,6 +401,7 @@ exports.exportScanImagesZip = controllerWrapper(async (req, res) => {
   }
 
   const zipEntries = [];
+  const exportedIds = [];
 
   for (let i = 0; i < scans.length; i += 1) {
     const scan = scans[i];
@@ -441,6 +445,7 @@ exports.exportScanImagesZip = controllerWrapper(async (req, res) => {
         data,
         date: scan.createdAt ? new Date(scan.createdAt) : new Date()
       });
+      exportedIds.push(scan._id);
     } catch (_) {
       // Skip images that cannot be fetched externally
     }
@@ -455,6 +460,19 @@ exports.exportScanImagesZip = controllerWrapper(async (req, res) => {
 
   const zipBuffer = createZipBuffer(zipEntries);
   const filename = `scanned_plant_images_${new Date().toISOString().slice(0, 10)}.zip`;
+
+  // Mark exported scans to prevent duplicate exports
+  const exportTag = `zip_${Date.now()}`;
+  await Scan.updateMany(
+    { _id: { $in: exportedIds } },
+    {
+      $set: {
+        'export_status.images_exported': true,
+        'export_status.exported_at': new Date(),
+        'export_status.export_batch_tag': exportTag
+      }
+    }
+  );
 
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

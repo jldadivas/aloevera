@@ -124,6 +124,15 @@ const scanSchema = new mongoose.Schema({
       ref: 'User'
     },
     validation_date: Date
+  },
+  export_status: {
+    images_exported: {
+      type: Boolean,
+      default: false,
+      index: true
+    },
+    exported_at: Date,
+    export_batch_tag: String
   }
 }, {
   timestamps: true
