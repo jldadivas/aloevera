@@ -269,7 +269,7 @@ def init_models():
     
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        disease_model_path = os.path.join(base_dir, "models", "AV5.pt")
+        disease_model_path = os.path.join(base_dir, "models", "bestDisease.pt")
         disease_detector = DiseaseDetector(model_path=disease_model_path)
         print("✅ Disease Detector loaded")
     except Exception as e:
