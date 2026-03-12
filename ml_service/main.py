@@ -67,6 +67,9 @@ _PEST_LABELS = {
     "spidermites",
 }
 
+MIN_DISEASE_CONFIDENCE = 0.5
+MIN_PEST_CONFIDENCE = 0.4
+
 
 def _is_likely_aloe_image(
     image_bytes: bytes,
@@ -208,7 +211,7 @@ def _is_likely_aloe_image(
     return True
 
 
-def _has_confident_disease_signal(disease_result: dict, min_conf: float = 0.25) -> bool:
+def _has_confident_disease_signal(disease_result: dict, min_conf: float = MIN_DISEASE_CONFIDENCE) -> bool:
     """
     True when detector sees a reasonably confident disease/pest signal.
     """
@@ -235,7 +238,7 @@ def _has_confident_disease_signal(disease_result: dict, min_conf: float = 0.25) 
     return max_conf >= min_conf
 
 
-def _has_confident_pest_signal(disease_result: dict, min_conf: float = 0.25) -> bool:
+def _has_confident_pest_signal(disease_result: dict, min_conf: float = MIN_PEST_CONFIDENCE) -> bool:
     """
     True when detector sees a confident mealybug/spider_mite class.
     """
@@ -337,6 +340,12 @@ async def scan_plant(file: UploadFile = File(...)):
         disease_result = disease_detector.detect_from_bytes(contents)
         if not disease_result.get("success"):
             raise HTTPException(status_code=400, detail=disease_result.get("error"))
+
+        # Enforce minimum confidence: treat low signals as healthy/unknown
+        if float(disease_result.get("confidence") or 0.0) < MIN_DISEASE_CONFIDENCE:
+            disease_result["health_status"] = "healthy"
+            disease_result["detections"] = []
+            disease_result["confidence"] = 0.0
 
         # Validate Aloe for every scan request.
         strict_aloe = _is_likely_aloe_image(contents, allow_closeup_fallback=False)

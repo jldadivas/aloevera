@@ -27,8 +27,9 @@ class DiseaseDetector:
         4: "bacterial_soft_rot"
     }
     
-    CONFIDENCE_THRESHOLD = 0.25  # Default threshold for normal scans
-    LIVE_CONFIDENCE_THRESHOLD = 0.3  # Lower threshold for live preview
+    # Confidence gates to suppress low-quality detections.
+    CONFIDENCE_THRESHOLD = 0.5  # Default threshold for normal scans
+    LIVE_CONFIDENCE_THRESHOLD = 0.35  # Slightly lower for live preview
     
     def __init__(self, model_path: str = None):
         """
@@ -322,7 +323,7 @@ class DiseaseDetector:
                         max_conf_healthy = conf
                     
                     # Accept detection if above the active threshold
-                    if conf > threshold:
+                    if conf >= threshold:
                         if disease_name not in ("healthy", "unknown") and conf > confidence:
                             health_status = disease_name
                             confidence = conf
@@ -340,7 +341,7 @@ class DiseaseDetector:
                 print(f"[DEBUG] No disease detections - marked as healthy")
             else:
                 # Filter detections to only include ones above the active threshold.
-                detections = [d for d in detections if d['confidence'] > threshold]
+                detections = [d for d in detections if d['confidence'] >= threshold]
             
             print(f"[DEBUG] Final result: health_status={health_status}, confidence={confidence:.4f}, detections={len(detections)}")
             
